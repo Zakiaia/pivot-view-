@@ -1,0 +1,6 @@
+{
+  "platform": "monday",
+  "type": "board-view",
+  "name": "Pivot Table View",
+  "entry": "index.ts"
+} 
