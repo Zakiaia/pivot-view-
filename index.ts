@@ -158,8 +158,34 @@ export async function fetchPivotData(boardId: number) {
       throw error;
     }
   } else if (isInsideMondayPlatform) {
-    // Inside Monday.com but SDK not available - try direct API call
-    console.log('🔧 Inside Monday.com platform but SDK unavailable, trying direct API...');
+    // Inside Monday.com but SDK not available - try session token from URL
+    console.log('🔧 Inside Monday.com platform but SDK unavailable, trying session token API...');
+    
+    // Get session token from URL or window context
+    let sessionToken: string | null = null;
+    
+    try {
+      // Try to get from window context first
+      if ((window as any).mondayContext && (window as any).mondayContext.sessionToken) {
+        sessionToken = (window as any).mondayContext.sessionToken;
+        console.log('🔑 Using session token from window context');
+      } else {
+        // Extract from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        sessionToken = urlParams.get('sessionToken');
+        console.log('🔑 Using session token from URL params');
+      }
+      
+      if (!sessionToken) {
+        throw new Error('No session token available');
+      }
+      
+      console.log('🎫 Session token found:', sessionToken.substring(0, 20) + '...');
+      
+    } catch (tokenError) {
+      console.error('❌ Error getting session token:', tokenError);
+      throw new Error('Could not extract session token from Monday.com context');
+    }
     
     const query = `
       query ($boardId: Int!) {
@@ -177,18 +203,22 @@ export async function fetchPivotData(boardId: number) {
     `;
 
     try {
-      // Try direct GraphQL call - might work if we're in authenticated context
+      // Use session token for authentication
       const response = await fetch('https://api.monday.com/v2', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`,
+          'monday-client-id': 'pivot-table-app',
         },
         body: JSON.stringify({
           query,
           variables: { boardId }
-        }),
-        credentials: 'include' // Include cookies for authentication
+        })
       });
+      
+      console.log('📡 API Response status:', response.status);
+      console.log('📡 API Response headers:', Object.fromEntries(response.headers.entries()));
       
       if (response.ok) {
         const result = await response.json();
@@ -206,18 +236,22 @@ export async function fetchPivotData(boardId: number) {
             return row;
           });
           
-          console.log('✅ Successfully transformed data via direct API:', data);
+          console.log('✅ Successfully transformed data via session token API:', data);
           return data;
+        } else if (result.errors) {
+          console.error('❌ GraphQL errors:', result.errors);
+          throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
         } else {
-          throw new Error('No data returned from direct API call');
+          throw new Error('No data returned from session token API call');
         }
       } else {
-        console.error('❌ Direct API call failed with status:', response.status);
-        throw new Error(`Direct API call failed: ${response.status}`);
+        const errorText = await response.text();
+        console.error('❌ Session token API call failed:', response.status, errorText);
+        throw new Error(`Session token API call failed: ${response.status} - ${errorText}`);
       }
       
     } catch (error) {
-      console.error('❌ Error with direct API call:', error);
+      console.error('❌ Error with session token API call:', error);
       throw error;
     }
   } else {

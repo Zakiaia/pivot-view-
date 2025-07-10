@@ -82,51 +82,36 @@ const App: React.FC = () => {
           }
         } else if (isInsideMondayPlatform) {
           // We're inside Monday.com but SDK isn't available
-          console.log('🔄 Inside Monday.com platform but SDK not available, trying iframe communication...');
+          console.log('🔄 Inside Monday.com platform but SDK not available, trying URL context...');
           
+          // Get board ID from URL context
+          let boardId = 4754725643; // Default fallback
           try {
-            // Try to communicate with parent window
-            if (window.parent !== window) {
-              console.log('📡 Trying to communicate with parent window...');
-              
-              // Post message to parent to request board data
-              window.parent.postMessage({
-                type: 'REQUEST_BOARD_DATA',
-                boardId: 4754725643
-              }, '*');
-              
-              // Listen for response
-              const boardDataPromise = new Promise((resolve, reject) => {
-                const timeout = setTimeout(() => reject(new Error('Timeout waiting for board data')), 10000);
-                
-                const messageHandler = (event: MessageEvent) => {
-                  if (event.data && event.data.type === 'BOARD_DATA_RESPONSE') {
-                    clearTimeout(timeout);
-                    window.removeEventListener('message', messageHandler);
-                    resolve(event.data.data);
-                  }
-                };
-                
-                window.addEventListener('message', messageHandler);
-              });
-              
-              const boardData = await boardDataPromise;
-              console.log('✅ Received board data from parent:', boardData);
-              setData(boardData as PivotData[]);
-              setDataSource('monday');
+            // Try to get from window context first
+            if ((window as any).mondayContext && (window as any).mondayContext.boardId) {
+              boardId = parseInt((window as any).mondayContext.boardId);
+              console.log('🎯 Using board ID from window context:', boardId);
             } else {
-              throw new Error('Not in iframe, cannot communicate with parent');
+              // Extract from URL
+              const urlParams = new URLSearchParams(window.location.search);
+              const urlBoardId = urlParams.get('boardId');
+              if (urlBoardId) {
+                boardId = parseInt(urlBoardId);
+                console.log('🎯 Using board ID from URL params:', boardId);
+              } else {
+                console.log('🎯 Using default board ID:', boardId);
+              }
             }
-          } catch (iframeError) {
-            console.error('❌ Error with iframe communication:', iframeError);
-            // Still try the fallback API call
-            console.log('🔄 Trying direct API fallback...');
-            const { fetchPivotData } = await import('../index');
-            const mondayData = await fetchPivotData(4754725643);
-            setData(mondayData);
-            setDataSource('monday');
-            console.log('✅ Successfully loaded Monday.com data via fallback:', mondayData);
+          } catch (error) {
+            console.log('⚠️ Could not extract board ID, using default:', boardId);
           }
+          
+          // Try to fetch data using session token approach
+          const { fetchPivotData } = await import('../index');
+          const mondayData = await fetchPivotData(boardId);
+          setData(mondayData);
+          setDataSource('monday');
+          console.log('✅ Successfully loaded Monday.com data via session token:', mondayData);
         } else {
           // Not inside Monday.com, use local development methods
           console.log('🔄 Not inside Monday.com platform, trying local development methods...');
