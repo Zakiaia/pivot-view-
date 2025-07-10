@@ -130,9 +130,9 @@ export async function fetchPivotData(boardId: number) {
           const items = result.data.boards[0].items;
           console.log(`📊 Found ${items.length} items in board ${boardId}`);
           
-          const data: PivotData[] = items.map(item => {
+          const data: PivotData[] = items.map((item: any) => {
             const row: Record<string, any> = { name: item.name };
-            item.column_values.forEach(col => {
+            item.column_values.forEach((col: any) => {
               row[col.title] = isNaN(Number(col.text)) ? col.text : Number(col.text);
             });
             return row;
@@ -153,9 +153,9 @@ export async function fetchPivotData(boardId: number) {
           const items = result.data.boards[0].items;
           console.log(`📊 Found ${items.length} items in board ${boardId}`);
           
-          const data: PivotData[] = items.map(item => {
+          const data: PivotData[] = items.map((item: any) => {
             const row: Record<string, any> = { name: item.name };
-            item.column_values.forEach(col => {
+            item.column_values.forEach((col: any) => {
               row[col.title] = isNaN(Number(col.text)) ? col.text : Number(col.text);
             });
             return row;
@@ -187,9 +187,9 @@ export async function fetchPivotData(boardId: number) {
           const items = result.data.boards[0].items;
           console.log(`📊 Found ${items.length} items in board ${boardId}`);
           
-          const data: PivotData[] = items.map(item => {
+          const data: PivotData[] = items.map((item: any) => {
             const row: Record<string, any> = { name: item.name };
-            item.column_values.forEach(col => {
+            item.column_values.forEach((col: any) => {
               row[col.title] = isNaN(Number(col.text)) ? col.text : Number(col.text);
             });
             return row;
@@ -240,9 +240,9 @@ export async function fetchPivotData(boardId: number) {
       const items = result.data.boards[0].items;
       console.log(`📊 Found ${items.length} items in board ${boardId}`);
 
-      const data: PivotData[] = items.map(item => {
+      const data: PivotData[] = items.map((item: any) => {
         const row: Record<string, any> = { name: item.name };
-        item.column_values.forEach(col => {
+        item.column_values.forEach((col: any) => {
           row[col.title] = isNaN(Number(col.text)) ? col.text : Number(col.text);
         });
         return row;

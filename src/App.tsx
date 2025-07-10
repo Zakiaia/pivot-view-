@@ -66,7 +66,7 @@ const App: React.FC = () => {
         console.log('✅ Successfully loaded Monday.com data:', mondayData);
       } catch (error) {
         console.error('❌ Error fetching Monday.com data:', error);
-        console.error('Error details:', error.message);
+        console.error('Error details:', error instanceof Error ? error.message : error);
         // Keep sample data if Monday.com fetch fails
         setDataSource('sample');
         console.log('🔄 Using sample data instead');
