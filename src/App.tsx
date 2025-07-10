@@ -33,37 +33,51 @@ const App: React.FC = () => {
       try {
         console.log('🚀 Starting Monday.com data fetch...');
         
-        // Check if we're running inside Monday.com
-        const isInsideMonday = typeof window !== 'undefined' && window.location.hostname.includes('monday.com');
-        console.log('🏠 Running inside Monday.com:', isInsideMonday);
+        // Check if Monday.com SDK is available
+        const isMondaySDKAvailable = typeof window !== 'undefined' && 
+                                   (window as any).monday && 
+                                   typeof (window as any).monday.api === 'function';
         
-        // Try to get board ID from context if running inside Monday.com
-        let boardId = 4754725643; // Default fallback
+        console.log('🏠 Monday.com SDK available:', isMondaySDKAvailable);
+        console.log('🌐 Current hostname:', window.location.hostname);
+        console.log('🌐 User agent:', navigator.userAgent);
         
-        if (isInsideMonday) {
+        if (isMondaySDKAvailable) {
+          // Initialize Monday.com SDK
+          await (window as any).monday.initialize({ listen: true });
+          console.log('✅ Monday.com SDK initialized');
+          
+          // Get board context from Monday.com
           try {
-            // Try to get board ID from URL or context
-            const urlParams = new URLSearchParams(window.location.search);
-            const contextBoardId = urlParams.get('boardId') || 
-                                  urlParams.get('board_id') || 
-                                  (window.location.pathname.match(/\/boards\/(\d+)/) || [])[1];
+            const context = await (window as any).monday.get('context');
+            console.log('📋 Monday.com context:', context);
             
-            if (contextBoardId) {
-              boardId = parseInt(contextBoardId);
+            let boardId = 4754725643; // Default fallback
+            if (context && context.boardId) {
+              boardId = parseInt(context.boardId);
               console.log('📋 Found board ID from context:', boardId);
             } else {
               console.log('📋 Using default board ID:', boardId);
             }
-          } catch (error) {
-            console.log('⚠️ Could not extract board ID from context, using default:', boardId);
+            
+            const { fetchPivotData } = await import('../index');
+            const mondayData = await fetchPivotData(boardId);
+            setData(mondayData);
+            setDataSource('monday');
+            console.log('✅ Successfully loaded Monday.com data:', mondayData);
+          } catch (contextError) {
+            console.error('❌ Error getting Monday.com context:', contextError);
+            throw contextError;
           }
+        } else {
+          // Fallback: try to use MCP or direct API
+          console.log('🔄 Monday.com SDK not available, trying fallback methods...');
+          const { fetchPivotData } = await import('../index');
+          const mondayData = await fetchPivotData(4754725643);
+          setData(mondayData);
+          setDataSource('monday');
+          console.log('✅ Successfully loaded Monday.com data via fallback:', mondayData);
         }
-        
-        const { fetchPivotData } = await import('../index');
-        const mondayData = await fetchPivotData(boardId);
-        setData(mondayData);
-        setDataSource('monday');
-        console.log('✅ Successfully loaded Monday.com data:', mondayData);
       } catch (error) {
         console.error('❌ Error fetching Monday.com data:', error);
         console.error('Error details:', error instanceof Error ? error.message : error);
@@ -74,7 +88,25 @@ const App: React.FC = () => {
         setIsLoading(false);
       }
     }
-    fetchData();
+    
+    // Wait for Monday.com SDK to be available
+    if (typeof window !== 'undefined' && (window as any).monday) {
+      fetchData();
+    } else {
+      // Wait for SDK to load
+      const checkSDK = setInterval(() => {
+        if (typeof window !== 'undefined' && (window as any).monday) {
+          clearInterval(checkSDK);
+          fetchData();
+        }
+      }, 100);
+      
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        clearInterval(checkSDK);
+        fetchData();
+      }, 5000);
+    }
   }, []);
 
   const handleConfigChange = (field: keyof PivotConfig, value: any) => {

@@ -93,17 +93,17 @@ function mondayAPI() {
 export async function fetchPivotData(boardId: number) {
   console.log(`🔍 Attempting to fetch data from Monday.com board: ${boardId}`);
   
-  // Check if we're running inside Monday.com
-  const isInsideMonday = typeof window !== 'undefined' && 
-    (window.location.hostname.includes('monday.com') || window.location.hostname.includes('mondayapps.com'));
+  // Check if Monday.com SDK is available
+  const isMondaySDKAvailable = typeof window !== 'undefined' && 
+    (window as any).monday && 
+    typeof (window as any).monday.api === 'function';
   
-  console.log('🏠 Running inside Monday.com:', isInsideMonday);
+  console.log('🏠 Monday.com SDK available:', isMondaySDKAvailable);
   console.log('🌐 Current hostname:', typeof window !== 'undefined' ? window.location.hostname : 'undefined');
   
-  if (isInsideMonday) {
-    console.log('🔧 Using Monday.com environment API...');
+  if (isMondaySDKAvailable) {
+    console.log('🔧 Using Monday.com SDK API...');
     
-    // Try to use Monday.com's built-in API
     const query = `
       query ($boardId: Int!) {
         boards(ids: [$boardId]) {
@@ -120,90 +120,30 @@ export async function fetchPivotData(boardId: number) {
     `;
 
     try {
-      // Method 1: Try window.monday if available
-      if ((window as any).monday) {
-        console.log('🔗 Using window.monday API');
-        const result = await (window as any).monday.api(query, { variables: { boardId } });
-        console.log('📦 Raw API response:', result);
+      console.log('🔗 Using Monday.com SDK API');
+      const result = await (window as any).monday.api(query, { variables: { boardId } });
+      console.log('📦 Raw API response:', result);
+      
+      if (result.data && result.data.boards && result.data.boards[0]) {
+        const items = result.data.boards[0].items;
+        console.log(`📊 Found ${items.length} items in board ${boardId}`);
         
-        if (result.data && result.data.boards && result.data.boards[0]) {
-          const items = result.data.boards[0].items;
-          console.log(`📊 Found ${items.length} items in board ${boardId}`);
-          
-          const data: PivotData[] = items.map((item: any) => {
-            const row: Record<string, any> = { name: item.name };
-            item.column_values.forEach((col: any) => {
-              row[col.title] = isNaN(Number(col.text)) ? col.text : Number(col.text);
-            });
-            return row;
+        const data: PivotData[] = items.map((item: any) => {
+          const row: Record<string, any> = { name: item.name };
+          item.column_values.forEach((col: any) => {
+            row[col.title] = isNaN(Number(col.text)) ? col.text : Number(col.text);
           });
-          
-          console.log('✅ Successfully transformed data:', data);
-          return data;
-        }
-      }
-      
-      // Method 2: Try mondaySDK if available
-      if ((window as any).mondaySDK) {
-        console.log('🔗 Using mondaySDK API');
-        const result = await (window as any).mondaySDK.api(query, { variables: { boardId } });
-        console.log('📦 Raw API response:', result);
+          return row;
+        });
         
-        if (result.data && result.data.boards && result.data.boards[0]) {
-          const items = result.data.boards[0].items;
-          console.log(`📊 Found ${items.length} items in board ${boardId}`);
-          
-          const data: PivotData[] = items.map((item: any) => {
-            const row: Record<string, any> = { name: item.name };
-            item.column_values.forEach((col: any) => {
-              row[col.title] = isNaN(Number(col.text)) ? col.text : Number(col.text);
-            });
-            return row;
-          });
-          
-          console.log('✅ Successfully transformed data:', data);
-          return data;
-        }
+        console.log('✅ Successfully transformed data:', data);
+        return data;
+      } else {
+        throw new Error('No data returned from Monday.com API');
       }
-      
-      // Method 3: Try to make a direct GraphQL call
-      console.log('🔗 Trying direct GraphQL call...');
-      const response = await fetch('https://api.monday.com/v2', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query,
-          variables: { boardId }
-        })
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        console.log('📦 Raw API response:', result);
-        
-        if (result.data && result.data.boards && result.data.boards[0]) {
-          const items = result.data.boards[0].items;
-          console.log(`📊 Found ${items.length} items in board ${boardId}`);
-          
-          const data: PivotData[] = items.map((item: any) => {
-            const row: Record<string, any> = { name: item.name };
-            item.column_values.forEach((col: any) => {
-              row[col.title] = isNaN(Number(col.text)) ? col.text : Number(col.text);
-            });
-            return row;
-          });
-          
-          console.log('✅ Successfully transformed data:', data);
-          return data;
-        }
-      }
-      
-      throw new Error('All Monday.com API methods failed');
       
     } catch (error) {
-      console.error('❌ Error calling Monday.com API:', error);
+      console.error('❌ Error calling Monday.com SDK API:', error);
       throw error;
     }
   } else {
