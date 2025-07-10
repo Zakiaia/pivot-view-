@@ -106,13 +106,18 @@ export async function fetchPivotData(boardId: number) {
   const isMondaySDKAvailable = typeof window !== 'undefined' && 
     (window as any).monday && 
     typeof (window as any).monday.api === 'function';
+    
+  const hasMondaySDKPromise = typeof window !== 'undefined' && 
+    (window as any).mondaySDKLoadPromise;
   
   console.log('🏠 Running inside Monday.com platform:', isInsideMondayPlatform);
   console.log('🏠 Monday.com SDK available:', isMondaySDKAvailable);
+  console.log('🏠 Monday.com SDK promise available:', hasMondaySDKPromise);
   console.log('🌐 Current hostname:', typeof window !== 'undefined' ? window.location.hostname : 'undefined');
   console.log('🌐 Referrer:', typeof document !== 'undefined' ? document.referrer : 'undefined');
   
-  if (isMondaySDKAvailable) {
+  // Helper function to use Monday.com SDK
+  const useMondaySDK = async (boardId: number) => {
     console.log('🔧 Using Monday.com SDK API...');
     
     const query = `
@@ -157,103 +162,130 @@ export async function fetchPivotData(boardId: number) {
       console.error('❌ Error calling Monday.com SDK API:', error);
       throw error;
     }
-  } else if (isInsideMondayPlatform) {
-    // Inside Monday.com but SDK not available - try session token from URL
-    console.log('🔧 Inside Monday.com platform but SDK unavailable, trying session token API...');
-    
-    // Get session token from URL or window context
-    let sessionToken: string | null = null;
+  };
+  
+  // Try to use Monday.com SDK (immediately available or via promise)
+  if (isMondaySDKAvailable) {
+    console.log('🎉 Monday.com SDK is available immediately!');
+    return await useMondaySDK(boardId);
+  } else if (hasMondaySDKPromise) {
+    console.log('⏳ Waiting for Monday.com SDK to load...');
     
     try {
-      // Try to get from window context first
-      if ((window as any).mondayContext && (window as any).mondayContext.sessionToken) {
-        sessionToken = (window as any).mondayContext.sessionToken;
-        console.log('🔑 Using session token from window context');
-      } else {
-        // Extract from URL
-        const urlParams = new URLSearchParams(window.location.search);
-        sessionToken = urlParams.get('sessionToken');
-        console.log('🔑 Using session token from URL params');
-      }
-      
-      if (!sessionToken) {
-        throw new Error('No session token available');
-      }
-      
-      console.log('🎫 Session token found:', sessionToken.substring(0, 20) + '...');
-      
-    } catch (tokenError) {
-      console.error('❌ Error getting session token:', tokenError);
-      throw new Error('Could not extract session token from Monday.com context');
+      // Wait for the SDK to load
+      const monday = await (window as any).mondaySDKLoadPromise;
+      console.log('🎉 Monday.com SDK loaded via promise!');
+      return await useMondaySDK(boardId);
+    } catch (error) {
+      console.error('❌ Error waiting for Monday.com SDK:', error);
+      // Continue to fallback approaches
     }
+  }
+  
+     // Fallback approaches
+   if (isInsideMondayPlatform) {
+    // Inside Monday.com but SDK not available - try postMessage communication
+    console.log('🔧 Inside Monday.com platform but SDK unavailable, trying postMessage API...');
     
-    const query = `
-      query ($boardId: Int!) {
-        boards(ids: [$boardId]) {
-          items {
-            name
-            column_values {
-              title
-              text
-              value
-            }
+         return new Promise<PivotData[]>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout waiting for Monday.com platform response'));
+      }, 10000);
+      
+      // Listen for messages from Monday.com platform
+      const messageHandler = (event: MessageEvent) => {
+        console.log('📨 Received message from Monday.com platform:', event.data);
+        
+        if (event.data && event.data.type === 'BOARD_DATA_RESPONSE') {
+          clearTimeout(timeout);
+          window.removeEventListener('message', messageHandler);
+          
+          try {
+            const items = event.data.data;
+            console.log(`📊 Found ${items.length} items via postMessage`);
+            
+            // Transform the data to our format
+            const data: PivotData[] = items.map((item: any) => {
+              const row: Record<string, any> = { name: item.name };
+              if (item.column_values) {
+                item.column_values.forEach((col: any) => {
+                  row[col.title] = isNaN(Number(col.text)) ? col.text : Number(col.text);
+                });
+              }
+              return row;
+            });
+            
+            console.log('✅ Successfully received data via postMessage:', data);
+            resolve(data);
+          } catch (error) {
+            console.error('❌ Error processing postMessage data:', error);
+            reject(error);
           }
         }
+      };
+      
+      window.addEventListener('message', messageHandler);
+      
+      // Send request to Monday.com platform
+      console.log('📡 Sending board data request to Monday.com platform...');
+      
+      // Try different ways to communicate with Monday.com
+      if (window.parent && window.parent !== window) {
+        // We're in an iframe, communicate with parent
+        window.parent.postMessage({
+          type: 'REQUEST_BOARD_DATA',
+          boardId: boardId
+        }, '*');
       }
-    `;
-
-    try {
-      // Use session token for authentication
-      const response = await fetch('https://api.monday.com/v2', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${sessionToken}`,
-          'monday-client-id': 'pivot-table-app',
-        },
-        body: JSON.stringify({
-          query,
-          variables: { boardId }
-        })
-      });
       
-      console.log('📡 API Response status:', response.status);
-      console.log('📡 API Response headers:', Object.fromEntries(response.headers.entries()));
+      // Also try sending to the top window
+      if (window.top && window.top !== window) {
+        window.top.postMessage({
+          type: 'REQUEST_BOARD_DATA',
+          boardId: boardId
+        }, '*');
+      }
       
-      if (response.ok) {
-        const result = await response.json();
-        console.log('📦 Raw API response:', result);
-        
-        if (result.data && result.data.boards && result.data.boards[0]) {
-          const items = result.data.boards[0].items;
-          console.log(`📊 Found ${items.length} items in board ${boardId}`);
+      // Try using the Monday.com SDK if it becomes available
+      const checkSDK = () => {
+        if ((window as any).monday && typeof (window as any).monday.api === 'function') {
+          clearTimeout(timeout);
+          window.removeEventListener('message', messageHandler);
           
-          const data: PivotData[] = items.map((item: any) => {
-            const row: Record<string, any> = { name: item.name };
-            item.column_values.forEach((col: any) => {
-              row[col.title] = isNaN(Number(col.text)) ? col.text : Number(col.text);
-            });
-            return row;
+          console.log('🎉 Monday.com SDK became available, using it directly!');
+          
+          // Use the SDK to get board data
+          (window as any).monday.api(`query { boards(ids: ${boardId}) { items { name column_values { title text value } } } }`).then((res: any) => {
+            console.log('📦 SDK API response:', res);
+            
+            if (res.data && res.data.boards && res.data.boards[0]) {
+              const items = res.data.boards[0].items;
+              const data: PivotData[] = items.map((item: any) => {
+                const row: Record<string, any> = { name: item.name };
+                item.column_values.forEach((col: any) => {
+                  row[col.title] = isNaN(Number(col.text)) ? col.text : Number(col.text);
+                });
+                return row;
+              });
+              
+              console.log('✅ Successfully got data via SDK:', data);
+              resolve(data);
+            } else {
+              reject(new Error('No data returned from SDK'));
+            }
+          }).catch((error: any) => {
+            console.error('❌ SDK API error:', error);
+            reject(error);
           });
-          
-          console.log('✅ Successfully transformed data via session token API:', data);
-          return data;
-        } else if (result.errors) {
-          console.error('❌ GraphQL errors:', result.errors);
-          throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
         } else {
-          throw new Error('No data returned from session token API call');
+          // Check again in 100ms
+          setTimeout(checkSDK, 100);
         }
-      } else {
-        const errorText = await response.text();
-        console.error('❌ Session token API call failed:', response.status, errorText);
-        throw new Error(`Session token API call failed: ${response.status} - ${errorText}`);
-      }
+      };
       
-    } catch (error) {
-      console.error('❌ Error with session token API call:', error);
-      throw error;
-    }
+      // Start checking for SDK availability
+      checkSDK();
+    });
   } else {
     // Local development - use MCP
     console.log('🔗 Using MCP connection for local development...');

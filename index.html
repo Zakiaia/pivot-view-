@@ -5,10 +5,8 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pivot View - Monday.com Integration</title>
-    <script src="https://cdn.monday.com/sdk/monday-sdk-js.js"></script>
-    <script src="https://cdn.monday.com/apps/sdk/monday-sdk-js.js"></script>
     <script>
-      // Extract Monday.com context from URL
+      // Extract Monday.com context from URL first
       window.mondayContext = {};
       try {
         const urlParams = new URLSearchParams(window.location.search);
@@ -23,17 +21,49 @@
         console.log('⚠️ Could not extract Monday.com context:', error);
       }
       
-      // Check SDK loading
+      // Initialize Monday.com SDK loading
       window.mondaySDKLoaded = false;
-      window.addEventListener('load', function() {
-        if (window.monday && typeof window.monday.api === 'function') {
-          window.mondaySDKLoaded = true;
-          console.log('✅ Monday.com SDK loaded successfully');
-        } else {
-          console.log('❌ Monday.com SDK failed to load, but we have URL context');
-        }
+      window.mondaySDKLoadPromise = new Promise((resolve, reject) => {
+        let attempts = 0;
+        const maxAttempts = 50;
+        
+        const checkSDK = () => {
+          attempts++;
+          console.log(`🔍 SDK Check ${attempts}/${maxAttempts} - Monday available:`, !!window.monday);
+          
+          if (window.monday && typeof window.monday.api === 'function') {
+            window.mondaySDKLoaded = true;
+            console.log('✅ Monday.com SDK loaded successfully');
+            
+            // Initialize the SDK
+            try {
+              window.monday.listen('context', (res) => {
+                console.log('📋 Monday.com context received:', res);
+                window.mondayContext = { ...window.mondayContext, ...res };
+              });
+              
+              window.monday.listen('settings', (res) => {
+                console.log('⚙️ Monday.com settings received:', res);
+                window.mondaySettings = res;
+              });
+              
+              resolve(window.monday);
+            } catch (error) {
+              console.error('❌ Error initializing Monday.com SDK:', error);
+              reject(error);
+            }
+          } else if (attempts >= maxAttempts) {
+            console.log('⏰ SDK loading timeout after', maxAttempts, 'attempts');
+            reject(new Error('SDK loading timeout'));
+          } else {
+            setTimeout(checkSDK, 100);
+          }
+        };
+        
+        checkSDK();
       });
     </script>
+    <script src="https://cdn.monday.com/sdk/monday-sdk-js.js" onerror="console.error('❌ Failed to load Monday.com SDK from CDN')"></script>
     <style>
       body {
         margin: 0;
