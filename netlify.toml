@@ -2,6 +2,13 @@
   publish = "dist"
   command = "npm run build"
 
+# Serve asset files directly
+[[redirects]]
+  from = "/assets/*"
+  to = "/assets/:splat"
+  status = 200
+
+# SPA fallback for everything else
 [[redirects]]
   from = "/*"
   to = "/index.html"
