@@ -33,13 +33,24 @@ const App: React.FC = () => {
       try {
         console.log('🚀 Starting Monday.com data fetch...');
         
+        // Check if we're running inside Monday.com environment
+        const isInsideMondayPlatform = typeof window !== 'undefined' && (
+          window.location.hostname.includes('monday.com') ||
+          window.location.hostname.includes('mondayapps.com') ||
+          window.location.href.includes('monday.com') ||
+          document.referrer.includes('monday.com') ||
+          window.parent !== window // Running in iframe
+        );
+        
         // Check if Monday.com SDK is available
         const isMondaySDKAvailable = typeof window !== 'undefined' && 
                                    (window as any).monday && 
                                    typeof (window as any).monday.api === 'function';
         
+        console.log('🏠 Running inside Monday.com platform:', isInsideMondayPlatform);
         console.log('🏠 Monday.com SDK available:', isMondaySDKAvailable);
         console.log('🌐 Current hostname:', window.location.hostname);
+        console.log('🌐 Referrer:', document.referrer);
         console.log('🌐 User agent:', navigator.userAgent);
         
         if (isMondaySDKAvailable) {
@@ -69,14 +80,61 @@ const App: React.FC = () => {
             console.error('❌ Error getting Monday.com context:', contextError);
             throw contextError;
           }
+        } else if (isInsideMondayPlatform) {
+          // We're inside Monday.com but SDK isn't available
+          console.log('🔄 Inside Monday.com platform but SDK not available, trying iframe communication...');
+          
+          try {
+            // Try to communicate with parent window
+            if (window.parent !== window) {
+              console.log('📡 Trying to communicate with parent window...');
+              
+              // Post message to parent to request board data
+              window.parent.postMessage({
+                type: 'REQUEST_BOARD_DATA',
+                boardId: 4754725643
+              }, '*');
+              
+              // Listen for response
+              const boardDataPromise = new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => reject(new Error('Timeout waiting for board data')), 10000);
+                
+                const messageHandler = (event: MessageEvent) => {
+                  if (event.data && event.data.type === 'BOARD_DATA_RESPONSE') {
+                    clearTimeout(timeout);
+                    window.removeEventListener('message', messageHandler);
+                    resolve(event.data.data);
+                  }
+                };
+                
+                window.addEventListener('message', messageHandler);
+              });
+              
+              const boardData = await boardDataPromise;
+              console.log('✅ Received board data from parent:', boardData);
+              setData(boardData as PivotData[]);
+              setDataSource('monday');
+            } else {
+              throw new Error('Not in iframe, cannot communicate with parent');
+            }
+          } catch (iframeError) {
+            console.error('❌ Error with iframe communication:', iframeError);
+            // Still try the fallback API call
+            console.log('🔄 Trying direct API fallback...');
+            const { fetchPivotData } = await import('../index');
+            const mondayData = await fetchPivotData(4754725643);
+            setData(mondayData);
+            setDataSource('monday');
+            console.log('✅ Successfully loaded Monday.com data via fallback:', mondayData);
+          }
         } else {
-          // Fallback: try to use MCP or direct API
-          console.log('🔄 Monday.com SDK not available, trying fallback methods...');
+          // Not inside Monday.com, use local development methods
+          console.log('🔄 Not inside Monday.com platform, trying local development methods...');
           const { fetchPivotData } = await import('../index');
           const mondayData = await fetchPivotData(4754725643);
           setData(mondayData);
           setDataSource('monday');
-          console.log('✅ Successfully loaded Monday.com data via fallback:', mondayData);
+          console.log('✅ Successfully loaded Monday.com data via local methods:', mondayData);
         }
       } catch (error) {
         console.error('❌ Error fetching Monday.com data:', error);
@@ -89,24 +147,26 @@ const App: React.FC = () => {
       }
     }
     
-    // Wait for Monday.com SDK to be available
-    if (typeof window !== 'undefined' && (window as any).monday) {
-      fetchData();
-    } else {
-      // Wait for SDK to load
-      const checkSDK = setInterval(() => {
-        if (typeof window !== 'undefined' && (window as any).monday) {
-          clearInterval(checkSDK);
-          fetchData();
-        }
-      }, 100);
+    // Wait for Monday.com SDK to be available or timeout
+    let attempts = 0;
+    const maxAttempts = 50; // 5 seconds
+    
+    const waitForSDKAndFetch = () => {
+      attempts++;
+      console.log(`🕐 Attempt ${attempts}/${maxAttempts} - Checking for Monday.com SDK...`);
       
-      // Timeout after 5 seconds
-      setTimeout(() => {
-        clearInterval(checkSDK);
+      if (typeof window !== 'undefined' && (window as any).monday && typeof (window as any).monday.api === 'function') {
+        console.log('✅ Monday.com SDK found, proceeding with data fetch');
         fetchData();
-      }, 5000);
-    }
+      } else if (attempts >= maxAttempts) {
+        console.log('⏰ SDK loading timeout, proceeding anyway');
+        fetchData();
+      } else {
+        setTimeout(waitForSDKAndFetch, 100);
+      }
+    };
+    
+    waitForSDKAndFetch();
   }, []);
 
   const handleConfigChange = (field: keyof PivotConfig, value: any) => {

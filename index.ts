@@ -93,13 +93,24 @@ function mondayAPI() {
 export async function fetchPivotData(boardId: number) {
   console.log(`🔍 Attempting to fetch data from Monday.com board: ${boardId}`);
   
+  // Check if we're running inside Monday.com environment
+  const isInsideMondayPlatform = typeof window !== 'undefined' && (
+    window.location.hostname.includes('monday.com') ||
+    window.location.hostname.includes('mondayapps.com') ||
+    window.location.href.includes('monday.com') ||
+    document.referrer.includes('monday.com') ||
+    window.parent !== window // Running in iframe
+  );
+  
   // Check if Monday.com SDK is available
   const isMondaySDKAvailable = typeof window !== 'undefined' && 
     (window as any).monday && 
     typeof (window as any).monday.api === 'function';
   
+  console.log('🏠 Running inside Monday.com platform:', isInsideMondayPlatform);
   console.log('🏠 Monday.com SDK available:', isMondaySDKAvailable);
   console.log('🌐 Current hostname:', typeof window !== 'undefined' ? window.location.hostname : 'undefined');
+  console.log('🌐 Referrer:', typeof document !== 'undefined' ? document.referrer : 'undefined');
   
   if (isMondaySDKAvailable) {
     console.log('🔧 Using Monday.com SDK API...');
@@ -144,6 +155,69 @@ export async function fetchPivotData(boardId: number) {
       
     } catch (error) {
       console.error('❌ Error calling Monday.com SDK API:', error);
+      throw error;
+    }
+  } else if (isInsideMondayPlatform) {
+    // Inside Monday.com but SDK not available - try direct API call
+    console.log('🔧 Inside Monday.com platform but SDK unavailable, trying direct API...');
+    
+    const query = `
+      query ($boardId: Int!) {
+        boards(ids: [$boardId]) {
+          items {
+            name
+            column_values {
+              title
+              text
+              value
+            }
+          }
+        }
+      }
+    `;
+
+    try {
+      // Try direct GraphQL call - might work if we're in authenticated context
+      const response = await fetch('https://api.monday.com/v2', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query,
+          variables: { boardId }
+        }),
+        credentials: 'include' // Include cookies for authentication
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('📦 Raw API response:', result);
+        
+        if (result.data && result.data.boards && result.data.boards[0]) {
+          const items = result.data.boards[0].items;
+          console.log(`📊 Found ${items.length} items in board ${boardId}`);
+          
+          const data: PivotData[] = items.map((item: any) => {
+            const row: Record<string, any> = { name: item.name };
+            item.column_values.forEach((col: any) => {
+              row[col.title] = isNaN(Number(col.text)) ? col.text : Number(col.text);
+            });
+            return row;
+          });
+          
+          console.log('✅ Successfully transformed data via direct API:', data);
+          return data;
+        } else {
+          throw new Error('No data returned from direct API call');
+        }
+      } else {
+        console.error('❌ Direct API call failed with status:', response.status);
+        throw new Error(`Direct API call failed: ${response.status}`);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error with direct API call:', error);
       throw error;
     }
   } else {

@@ -6,6 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pivot View - Monday.com Integration</title>
     <script src="https://cdn.monday.com/sdk/monday-sdk-js.js"></script>
+    <script>
+      // Ensure Monday.com SDK is loaded
+      window.mondaySDKLoaded = false;
+      window.addEventListener('load', function() {
+        if (window.monday && typeof window.monday.api === 'function') {
+          window.mondaySDKLoaded = true;
+          console.log('✅ Monday.com SDK loaded successfully');
+        } else {
+          console.log('❌ Monday.com SDK failed to load');
+        }
+      });
+    </script>
     <style>
       body {
         margin: 0;
